@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "maison-privee",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8642", "--directory", "/Users/ad/maison-privee-website"],
+      "port": 8642,
+      "autoPort": false
+    }
+  ]
+}
