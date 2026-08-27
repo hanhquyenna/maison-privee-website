@@ -12,10 +12,10 @@
 
   /* ── preloader: warm the first chapter before unveiling ── */
   const preload = [
-    'texture-ivory.jpg', 'texture-navy.jpg', 'wordmark.jpg',
-    'aerial-township.jpg', 'aerial-day.jpg', 'aerial-dusk.jpg', 'towers-street.jpg',
-    'entrance-gate.jpg'
-  ].map(f => 'assets/img/' + f);
+    'img/texture-ivory.jpg', 'img/texture-navy.jpg', 'img/wordmark.jpg',
+    'img/aerial-dusk.jpg', 'img/entrance-gate.jpg',
+    'seq/d0000.jpg', 'seq/d0036.jpg', 'seq/d0072.jpg', 'seq/d0108.jpg', 'seq/d0144.jpg', 'seq/d0179.jpg'
+  ].map(f => 'assets/' + f);
 
   const pctEl = document.getElementById('preloaderPct');
   const fillEl = document.getElementById('preloaderFill');
@@ -50,14 +50,60 @@
     const captions = [...sec.querySelectorAll('.caption')];
     const vh = parseInt(sec.dataset.vh || 400, 10);
     sec.style.height = vh + 'vh';
-    sections.push({
+    const s = {
       el: sec, frames, captions,
       n: frames.length,
       pan: sec.classList.contains('pan-section'),
       zoomOnly: sec.classList.contains('zoom-only'),
       target: 0, current: 0
-    });
+    };
+    /* video-scrub mode: data-seq="assets/seq/d" data-seq-count="180" */
+    if (sec.dataset.seq) {
+      s.canvas = sec.querySelector('.seq-canvas');
+      s.ctx = s.canvas.getContext('2d');
+      s.seqN = parseInt(sec.dataset.seqCount, 10);
+      s.imgs = new Array(s.seqN).fill(null);
+      s.lastDrawn = -1;
+      const pad = i => String(i).padStart(4, '0');
+      const load = i => {
+        if (s.imgs[i]) return;
+        const im = new Image();
+        im.onload = () => { s.imgs[i] = im; if (nearestLoaded(s, Math.round(s.current * (s.seqN - 1))) === i) s.lastDrawn = -1; };
+        im.src = `${sec.dataset.seq}${pad(i)}.jpg`;
+        s.imgs[i] = im.complete ? im : s.imgs[i]; // cache hit
+      };
+      // progressive: coarse pass (every 6th) first, fine pass on idle
+      for (let i = 0; i < s.seqN; i += 6) load(i);
+      const fine = () => { for (let i = 0; i < s.seqN; i++) load(i); };
+      ('requestIdleCallback' in window) ? requestIdleCallback(fine, { timeout: 4000 }) : setTimeout(fine, 2500);
+    }
+    sections.push(s);
   });
+
+  const nearestLoaded = (s, idx) => {
+    for (let d = 0; d < s.seqN; d++) {
+      const lo = idx - d, hi = idx + d;
+      if (lo >= 0 && s.imgs[lo] && s.imgs[lo].complete && s.imgs[lo].naturalWidth) return lo;
+      if (hi < s.seqN && s.imgs[hi] && s.imgs[hi].complete && s.imgs[hi].naturalWidth) return hi;
+    }
+    return -1;
+  };
+
+  const drawSeq = (s, p) => {
+    const cv = s.canvas, ctx = s.ctx;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const w = cv.clientWidth * dpr, h = cv.clientHeight * dpr;
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; s.lastDrawn = -1; }
+    const idx = nearestLoaded(s, Math.round(p * (s.seqN - 1)));
+    if (idx < 0 || idx === s.lastDrawn) return;
+    const im = s.imgs[idx];
+    // cover-fit
+    const ir = im.naturalWidth / im.naturalHeight, cr = w / h;
+    let dw, dh;
+    if (ir > cr) { dh = h; dw = h * ir; } else { dw = w; dh = w / ir; }
+    ctx.drawImage(im, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    s.lastDrawn = idx;
+  };
 
   /* horizontal gallery */
   const hSec = document.querySelector('.hscroll-section');
@@ -79,6 +125,21 @@
   /* render one frame-sequence section at progress p (0..1) */
   const renderSeq = (s, p) => {
     const { frames, captions, n } = s;
+
+    if (s.canvas) {
+      drawSeq(s, p);
+      // captions in equal bands across the scrub
+      const cn = captions.length, cseg = 1 / cn;
+      captions.forEach((c, i) => {
+        const local = clamp01((p - i * cseg) / cseg);
+        const vis = local < .12 ? local / .12
+                  : local > .82 ? 1 - (local - .82) / .18
+                  : 1;
+        c.style.opacity = clamp01(vis);
+        c.style.transform = `translateY(${lerp(26, 0, clamp01(local / .12))}px)`;
+      });
+      return;
+    }
 
     if (s.zoomOnly) {
       // single-image finale: long slow push-in
